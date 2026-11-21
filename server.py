@@ -2,6 +2,8 @@
 
 The bearer token stays server-side; the browser only talks to /api/*.
 """
+import base64
+import hmac
 import json
 import os
 import re
@@ -13,6 +15,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 BASE_URL = os.environ.get("FHIR_BASE_URL", "").rstrip("/")
 TOKEN = os.environ.get("FHIR_BEARER_TOKEN", "")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 PORT = int(os.environ.get("PORT", "8000"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TIMEOUT = 30
@@ -98,16 +101,41 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(400, outcome("Only Patient resources are accepted"))
         self.send_json(*fhir_request(method, url, body))
 
+    def authorized(self):
+        """When APP_PASSWORD is set, require HTTP Basic auth (any username)."""
+        if not APP_PASSWORD:
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                _, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+                if hmac.compare_digest(password.encode(), APP_PASSWORD.encode()):
+                    return True
+            except (ValueError, UnicodeDecodeError):
+                pass
+        body = b"Password required"
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="FHIRConnect", charset="UTF-8"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def do_GET(self):
+        if not self.authorized():
+            return
         if self.path.startswith("/api/"):
             return self.proxy("GET")
         return super().do_GET()
 
     def do_POST(self):
-        self.proxy("POST")
+        if self.authorized():
+            self.proxy("POST")
 
     def do_PUT(self):
-        self.proxy("PUT")
+        if self.authorized():
+            self.proxy("PUT")
 
 
 if __name__ == "__main__":
