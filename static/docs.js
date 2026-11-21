@@ -1,15 +1,15 @@
-// "Docs" tab: documentation for the patient form (fields, validation, FHIR mapping, requests).
+// "Docs" tab: FHIR data sources for each part of the app, and the patient form (fields, validation, requests).
 (() => {
   const today = new Date().toISOString().slice(0, 10);
   const HTML = `
     <div class="perf-head">
-      <div><h2>Patient form documentation</h2>
-        <p>How the New patient / Edit patient form works, what it validates, and what it sends to the FHIR server.</p></div>
+      <div><h2>Documentation</h2>
+        <p>Which FHIR resources each part of the app comes from, and how the New patient / Edit patient form works, what it validates and what it sends.</p></div>
       <div class="actions"><button type="button" data-act="close">Close</button></div>
     </div>
     <div class="perf-body docs">
       <nav class="docs-toc" aria-label="Sections">
-        <a href="#docs-overview">Overview</a><a href="#docs-fields">Fields</a><a href="#docs-validation">Validation</a>
+        <a href="#docs-overview">Overview</a><a href="#docs-sources">Data sources</a><a href="#docs-fields">Form fields</a><a href="#docs-validation">Validation</a>
         <a href="#docs-create">Create</a><a href="#docs-edit">Edit</a><a href="#docs-errors">Errors</a>
       </nav>
 
@@ -19,8 +19,42 @@
         <p>The browser sends requests to this app's server, which adds the <code>Authorization: Bearer</code> token and forwards them to the FHIR server. The token never reaches the browser.</p>
       </section>
 
+      <section id="docs-sources">
+        <h3>Data sources</h3>
+        <p>Every piece of data in the app is read from, or written to, these FHIR resources. Requests go to the FHIR server through this app's server.</p>
+        <table>
+          <thead><tr><th>Where it appears</th><th>FHIR resource</th><th>Request</th><th>Fields used</th></tr></thead>
+          <tbody>
+            <tr><td><b>Patient list</b> and summary counts</td><td><a href="https://hl7.org/fhir/R4/patient.html" target="_blank" rel="noopener">Patient</a></td><td><code>GET /Patient?_count=50</code>, then each <code>next</code> page link in the Bundle</td><td><code>id</code>, <code>name</code> (official, else usual, else first: <code>prefix</code>, <code>given</code>, <code>family</code>), <code>gender</code>, <code>birthDate</code></td></tr>
+            <tr><td><b>Search by name</b></td><td>Patient</td><td><code>GET /Patient?_count=50&amp;name=[text]</code></td><td>Same as the patient list</td></tr>
+            <tr><td><b>New patient</b> form</td><td>Patient</td><td><code>POST /Patient</code></td><td><code>name[0].given</code>, <code>name[0].family</code>, <code>gender</code>, <code>birthDate</code></td></tr>
+            <tr><td><b>Edit patient</b> form</td><td>Patient</td><td><code>GET /Patient/[id]</code>, then <code>PUT /Patient/[id]</code></td><td>Same as the New patient form; all other fields are kept</td></tr>
+            <tr><td><b>Patient page:</b> demographics</td><td>Patient</td><td><code>GET /Patient/[id]</code></td><td><code>name</code>, <code>gender</code>, <code>birthDate</code> (age is calculated from it), <code>id</code></td></tr>
+            <tr><td><b>Patient page:</b> vital signs (charts and table)</td><td><a href="https://hl7.org/fhir/R4/observation.html" target="_blank" rel="noopener">Observation</a></td><td><code>GET /Observation?subject=Patient/[id]&amp;code=8867-4,8310-5,9279-1,59408-5,8302-2,29463-7,39156-5,55284-4,85354-9&amp;_count=200</code></td><td><code>code.coding.code</code> (LOINC), <code>valueQuantity.value</code> and <code>.unit</code>, <code>component</code> (blood pressure), date from <code>effectiveDateTime</code>, else <code>effectivePeriod.start</code>, else <code>issued</code></td></tr>
+            <tr><td><b>Patient page:</b> conditions</td><td><a href="https://hl7.org/fhir/R4/condition.html" target="_blank" rel="noopener">Condition</a></td><td><code>GET /Condition?patient=[id]&amp;_count=200</code></td><td>Name from <code>code.text</code>, else <code>code.coding.display</code>; onset from <code>onsetDateTime</code>, else <code>onsetPeriod.start</code>, <code>onsetString</code> or <code>onsetAge</code>; <code>clinicalStatus</code></td></tr>
+            <tr><td><b>Patient page:</b> medications</td><td><a href="https://hl7.org/fhir/R4/medicationrequest.html" target="_blank" rel="noopener">MedicationRequest</a> (+ <a href="https://hl7.org/fhir/R4/medication.html" target="_blank" rel="noopener">Medication</a>)</td><td><code>GET /MedicationRequest?patient=[id]&amp;_include=MedicationRequest:medication&amp;_count=200</code></td><td>Name from <code>medicationCodeableConcept</code>, or from the referenced Medication's <code>code</code> when <code>medicationReference</code> is used; <code>status</code>; <code>authoredOn</code> (Prescribed)</td></tr>
+          </tbody>
+        </table>
+        <h3 class="sub-h">Vital signs by LOINC code</h3>
+        <p>Each vital sign chart is built from the Observations whose <code>code</code> has these LOINC codes.</p>
+        <table>
+          <thead><tr><th>Vital sign</th><th>Observation code (LOINC)</th><th>Value read from</th></tr></thead>
+          <tbody>
+            <tr><td>Heart rate</td><td><code>8867-4</code></td><td><code>valueQuantity</code> (/min)</td></tr>
+            <tr><td>Blood pressure</td><td>Panel <code>85354-9</code> or <code>55284-4</code></td><td><code>component</code> with code <code>8480-6</code> (systolic) and <code>8462-4</code> (diastolic), each a <code>valueQuantity</code> in mmHg</td></tr>
+            <tr><td>Temperature</td><td><code>8310-5</code></td><td><code>valueQuantity</code> (°C)</td></tr>
+            <tr><td>Respiratory rate</td><td><code>9279-1</code></td><td><code>valueQuantity</code> (/min)</td></tr>
+            <tr><td>Oxygen saturation</td><td><code>59408-5</code></td><td><code>valueQuantity</code> (%)</td></tr>
+            <tr><td>Height</td><td><code>8302-2</code></td><td><code>valueQuantity</code> (cm)</td></tr>
+            <tr><td>Weight</td><td><code>29463-7</code></td><td><code>valueQuantity</code> (kg)</td></tr>
+            <tr><td>BMI</td><td><code>39156-5</code></td><td><code>valueQuantity</code> (kg/m²)</td></tr>
+          </tbody>
+        </table>
+        <p class="note">This server stores blood pressure under panel code 85354-9, so that code is added to the Observation request. Observations marked <code>entered-in-error</code> are skipped.</p>
+      </section>
+
       <section id="docs-fields">
-        <h3>Fields</h3>
+        <h3>Form fields</h3>
         <table>
           <thead><tr><th>Field</th><th>Required</th><th>Accepted values</th><th>FHIR element</th></tr></thead>
           <tbody>
@@ -120,7 +154,7 @@ Content-Type: application/fhir+json
     drawer.className = "perf-drawer docs-drawer";
     drawer.hidden = true;
     drawer.setAttribute("role", "dialog");
-    drawer.setAttribute("aria-label", "Patient form documentation");
+    drawer.setAttribute("aria-label", "Documentation");
     drawer.innerHTML = HTML;
     drawer.querySelector('[data-act="close"]').addEventListener("click", () => toggle(false));
     drawer.querySelectorAll(".docs-toc a").forEach(a => a.addEventListener("click", (e) => {

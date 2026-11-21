@@ -178,3 +178,5 @@
     .docs tbody tr { display: table-row; padding: 0; border: 0; }
     .docs tbody td { display: table-cell; padding: 8px 10px; }
   }
+  .docs h3.sub-h { margin-top: 18px; font-size: 14.5px; }
+  .docs td code { overflow-wrap: anywhere; }
