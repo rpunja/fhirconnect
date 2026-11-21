@@ -65,6 +65,11 @@
     <div class="demo" id="demo"><div class="muted">Loading patient…</div></div>
   </section>
 
+  <section class="panel" aria-labelledby="cg-title">
+    <div class="panel-head"><div><h2 id="cg-title">Care guidance summary</h2><div class="sub">Based on vital sign trends and condition guidelines</div></div></div>
+    <div id="guidance" class="cg"><div class="muted">Analysing vital signs and conditions…</div></div>
+  </section>
+
   <section class="panel" aria-labelledby="vitals-title">
     <div class="panel-head">
       <div><h2 id="vitals-title">Vital signs</h2><div class="sub" id="vitals-sub">Loading…</div></div>
@@ -98,6 +103,7 @@
 
 <script src="/chart.umd.min.js"></script>
 <script src="/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="/guidance.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const patientId = decodeURIComponent(location.pathname.split("/")[2] || "");
@@ -214,6 +220,7 @@ async function loadPatient() {
     const ef = el("div", "value"); ef.appendChild(edit);
     facts.appendChild(fact("Actions", ef));
     demo.appendChild(facts);
+    return p;
   } catch (err) {
     demo.innerHTML = "";
     demo.appendChild(el("div", "status error", `Could not load patient: ${err.message}`));
@@ -338,6 +345,7 @@ async function loadVitals() {
     $("vitals-sub").textContent = total ? `${total} reading${total === 1 ? "" : "s"} across ${VITALS.filter(v => series[v.key].length).length} vital signs` : "No vital signs recorded";
     renderCharts(series);
     renderVitalsTable(series);
+    return series;
   } catch (err) {
     $("vitals-sub").textContent = "";
     setStatus("vitals-status", `Could not load vital signs: ${err.message}`, true);
@@ -363,6 +371,7 @@ async function loadConditions() {
     const active = items.filter(c => ((c.clinicalStatus && (c.clinicalStatus.coding || [])[0]) || {}).code === "active").length;
     $("cond-sub").textContent = items.length ? `${items.length} total · ${active} active` : "";
     setStatus("cond-status", items.length ? "" : "No conditions recorded");
+    return items;
   } catch (err) {
     $("cond-sub").textContent = "";
     setStatus("cond-status", `Could not load conditions: ${err.message}`, true);
@@ -402,7 +411,9 @@ if (!patientId) {
   $("demo").innerHTML = "";
   $("demo").appendChild(el("div", "status error", "No patient ID in the URL."));
 } else {
-  loadPatient(); loadVitals(); loadConditions(); loadMedications();
+  Promise.all([loadPatient(), loadVitals(), loadConditions()])
+    .then(([p, series, conditions]) => renderCareGuidance($("guidance"), p, series, conditions));
+  loadMedications();
 }
 </script>
 </body>
