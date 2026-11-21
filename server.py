@@ -20,7 +20,9 @@ PORT = int(os.environ.get("PORT", "8000"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TIMEOUT = 30
 
-PATIENT_PATH = re.compile(r"^/api/Patient(/[A-Za-z0-9\-.]{1,64})?$")
+RESOURCE_PATH = re.compile(r"^/api/(Patient|Observation|Condition|MedicationRequest)(/[A-Za-z0-9\-.]{1,64})?$")
+READ_ONLY = {"Observation", "Condition", "MedicationRequest"}
+DETAIL_PAGE = re.compile(r"^/patient/[A-Za-z0-9\-.]{1,64}/?$")
 
 
 def fhir_request(method, url, body=None):
@@ -82,10 +84,13 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(400, outcome("Paging link does not point at the FHIR server"))
             return self.send_json(*fhir_request("GET", target))
 
-        if not PATIENT_PATH.match(parsed.path):
+        m = RESOURCE_PATH.match(parsed.path)
+        if not m:
             return self.send_json(404, outcome("Not found"))
-        has_id = parsed.path != "/api/Patient"
-        if (method == "POST" and has_id) or (method == "PUT" and not has_id):
+        resource_type, has_id = m.group(1), bool(m.group(2))
+        if method != "GET" and (resource_type in READ_ONLY
+                                or (method == "POST" and has_id)
+                                or (method == "PUT" and not has_id)):
             return self.send_json(405, outcome("Method not allowed"))
 
         url = BASE_URL + parsed.path[len("/api"):]
@@ -127,6 +132,8 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/"):
             return self.proxy("GET")
+        if DETAIL_PAGE.match(urllib.parse.urlsplit(self.path).path):
+            self.path = "/patient.html"
         return super().do_GET()
 
     def do_POST(self):

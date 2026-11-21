@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient · FHIRConnect</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+  .page { max-width: 1180px; margin: 0 auto; padding: 22px 24px; display: grid; gap: 22px; }
+  @media (max-width: 640px) { .page { padding: 16px 14px; } }
+  .back { font-size: 14px; text-decoration: none; font-weight: 500; }
+  .back:hover { text-decoration: underline; }
+  .demo { display: flex; align-items: center; gap: 18px; padding: 20px; flex-wrap: wrap; }
+  .demo .avatar { width: 64px; height: 64px; font-size: 22px; }
+  .demo h2 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
+  .demo .id { font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-top: 2px; word-break: break-all; }
+  .facts { display: flex; gap: 28px; margin-left: auto; flex-wrap: wrap; }
+  .fact .label { font-size: 12px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+  .fact .value { font-size: 16px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; border-radius: 999px; padding: 6px 16px; background: transparent; color: var(--text-muted); }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(15,27,45,.12); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 18px; }
+  @media (max-width: 420px) { .charts { grid-template-columns: 1fr; padding: 12px; } }
+  .chart-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; min-width: 0; }
+  .chart-card h3 { margin: 0; font-size: 14px; font-weight: 650; }
+  .chart-card .latest { font-size: 13px; color: var(--text-muted); margin: 2px 0 10px; font-variant-numeric: tabular-nums; }
+  .chart-card .latest b { color: var(--text); font-size: 18px; }
+  .chart-box { position: relative; height: 180px; }
+  .chart-empty { height: 180px; display: grid; place-items: center; color: var(--text-muted); font-size: 13px; background: var(--bg); border-radius: var(--radius-sm); }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  .pill.active { background: rgba(30,127,79,.1); color: var(--ok); }
+  .pill.completed, .pill.resolved, .pill.inactive { background: var(--unknown-soft); color: var(--unknown); }
+  .pill.stopped, .pill.cancelled, .pill.entered-in-error { background: rgba(198,40,40,.08); color: var(--danger); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  .scroll { max-height: 520px; overflow: auto; }
+  .scroll thead th { position: sticky; top: 0; z-index: 1; }
+  .page table tbody tr { display: table-row; }
+  .page table tbody td { display: table-cell; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+  .page table tbody tr:last-child td { border-bottom: 0; }
+  @media (max-width: 640px) { .page thead { display: table-header-group; } .page table { display: table; } .page table tbody { display: table-row-group; } .page th, .page table tbody td { padding: 9px 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <a class="brand" href="/">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>
+      </div>
+      <div><h1>FHIRConnect</h1><p>Patient management · FHIR R4</p></div>
+    </a>
+    <span class="server" id="server" title="Connected FHIR server"></span>
+  </div>
+</header>
+
+<div class="page">
+  <a class="back" href="/">← All patients</a>
+
+  <section class="panel" aria-label="Demographics">
+    <div class="demo" id="demo"><div class="muted">Loading patient…</div></div>
+  </section>
+
+  <section class="panel" aria-labelledby="vitals-title">
+    <div class="panel-head">
+      <div><h2 id="vitals-title">Vital signs</h2><div class="sub" id="vitals-sub">Loading…</div></div>
+      <div class="seg" role="group" aria-label="Vitals view">
+        <button type="button" id="view-chart" aria-pressed="true">Charts</button>
+        <button type="button" id="view-table" aria-pressed="false">Table</button>
+      </div>
+    </div>
+    <div id="vitals-charts" class="charts"></div>
+    <div id="vitals-table" class="scroll" hidden>
+      <table><thead><tr><th>Date</th><th>Vital sign</th><th>Value</th></tr></thead><tbody id="vitals-rows"></tbody></table>
+    </div>
+    <div class="status" id="vitals-status" hidden></div>
+  </section>
+
+  <div class="two">
+    <section class="panel" aria-labelledby="cond-title">
+      <div class="panel-head"><div><h2 id="cond-title">Conditions</h2><div class="sub" id="cond-sub">Loading…</div></div></div>
+      <div class="scroll"><table><thead><tr><th>Condition</th><th>Onset</th><th>Status</th></tr></thead><tbody id="cond-rows"></tbody></table></div>
+      <div class="status" id="cond-status" hidden></div>
+    </section>
+    <section class="panel" aria-labelledby="med-title">
+      <div class="panel-head"><div><h2 id="med-title">Medications</h2><div class="sub" id="med-sub">Loading…</div></div></div>
+      <div class="scroll"><table><thead><tr><th>Medication</th><th>Status</th><th>Prescribed</th></tr></thead><tbody id="med-rows"></tbody></table></div>
+      <div class="status" id="med-status" hidden></div>
+    </section>
+  </div>
+</div>
+
+<footer><a href="https://app.devin.ai/sessions/2f8a07da0214438bb9b1404f2f717dad" target="_blank" rel="noopener">Request changes</a></footer>
+
+<script src="/chart.umd.min.js"></script>
+<script src="/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const patientId = decodeURIComponent(location.pathname.split("/")[2] || "");
+const GENDERS = ["male", "female", "other", "unknown"];
+const MAX_PAGES = 20;
+
+// Blood pressure panels are coded 55284-4 or 85354-9 (Synthea) with systolic/diastolic components.
+const BP_PANELS = ["55284-4", "85354-9"];
+const VITALS = [
+  { key: "hr", label: "Heart rate", codes: ["8867-4"], color: "#C2417E" },
+  { key: "bp", label: "Blood pressure", codes: BP_PANELS, color: "#2F6FED", bp: true },
+  { key: "temp", label: "Temperature", codes: ["8310-5"], color: "#E07A1F" },
+  { key: "rr", label: "Respiratory rate", codes: ["9279-1"], color: "#0E7C86" },
+  { key: "spo2", label: "Oxygen saturation", codes: ["59408-5"], color: "#7A5AF8" },
+  { key: "height", label: "Height", codes: ["8302-2"], color: "#1E7F4F" },
+  { key: "weight", label: "Weight", codes: ["29463-7"], color: "#B5651D" },
+  { key: "bmi", label: "BMI", codes: ["39156-5"], color: "#5B6B82" },
+];
+const OBS_CODES = ["8867-4", "8310-5", "9279-1", "59408-5", "8302-2", "29463-7", "39156-5", ...BP_PANELS];
+
+async function api(path) {
+  const res = await fetch(path, { headers: { Accept: "application/fhir+json" } });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch {}
+  if (!res.ok) {
+    const issues = data && data.resourceType === "OperationOutcome" ? data.issue || [] : [];
+    const msg = issues.map(i => i.diagnostics || (i.details && i.details.text) || i.code).filter(Boolean).join("; ");
+    throw new Error(`FHIR server returned ${res.status}${msg ? ": " + msg : ""}`);
+  }
+  return data;
+}
+
+async function searchAll(path) {
+  const resources = [];
+  let bundle = await api(path), pages = 0;
+  while (bundle) {
+    for (const e of bundle.entry || []) if (e.resource) resources.push(e.resource);
+    const next = (bundle.link || []).find(l => l.relation === "next");
+    if (!next || ++pages >= MAX_PAGES) break;
+    bundle = await api(`/api/next?url=${encodeURIComponent(next.url)}`);
+  }
+  return resources;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function row(cells) {
+  const tr = el("tr");
+  for (const c of cells) {
+    if (c instanceof Node) { const td = el("td"); td.appendChild(c); tr.appendChild(td); }
+    else tr.appendChild(el("td", c.cls || "", c.text));
+  }
+  return tr;
+}
+function setStatus(id, text, isError) {
+  const s = $(id); s.textContent = text || ""; s.hidden = !text; s.className = "status" + (isError ? " error" : "");
+}
+function conceptText(cc) {
+  if (!cc) return "";
+  return cc.text || (cc.coding || []).map(c => c.display).find(Boolean) || (cc.coding || []).map(c => c.code).find(Boolean) || "";
+}
+function fmtDate(iso) {
+  if (!iso) return "—";
+  if (/^\d{4}(-\d{2})?(-\d{2})?$/.test(iso)) return iso;
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1).replace(/-/g, " ") : "—"; }
+function primaryName(p) {
+  const names = p.name || [];
+  return names.find(x => x.use === "official") || names.find(x => x.use === "usual") || names[0] || null;
+}
+function displayName(p) {
+  const n = primaryName(p);
+  if (!n) return "";
+  return [...(n.prefix || []), ...(n.given || []), n.family].filter(Boolean).join(" ") || n.text || "";
+}
+function age(b) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b || "")) return null;
+  const [y, m, d] = b.split("-").map(Number), now = new Date();
+  let a = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) a--;
+  return a >= 0 && a < 150 ? a : null;
+}
+function round(v) { return Math.round(v * 100) / 100; }
+
+// ---------- Demographics ----------
+async function loadPatient() {
+  const demo = $("demo");
+  try {
+    const p = await api(`/api/Patient/${encodeURIComponent(patientId)}`);
+    const name = displayName(p) || "(no name)";
+    document.title = `${name} · FHIRConnect`;
+    const g = GENDERS.includes(p.gender) ? p.gender : "unknown";
+    const n = primaryName(p) || {};
+    demo.innerHTML = "";
+    demo.appendChild(el("div", "avatar " + g, ((((n.given || [])[0] || "")[0] || "") + ((n.family || "")[0] || "")).toUpperCase() || "?"));
+    const who = el("div");
+    who.appendChild(el("h2", "", name));
+    who.appendChild(el("div", "id", `ID ${p.id}`));
+    demo.appendChild(who);
+    const facts = el("div", "facts");
+    const fact = (label, value) => { const f = el("div", "fact"); f.appendChild(el("div", "label", label)); f.appendChild(value instanceof Node ? value : el("div", "value", value)); return f; };
+    const pill = el("div", "value"); pill.appendChild(el("span", "pill " + g, p.gender ? cap(p.gender) : "Not set"));
+    facts.appendChild(fact("Gender", pill));
+    const a = age(p.birthDate);
+    facts.appendChild(fact("Date of birth", (p.birthDate || "—") + (a != null ? ` (${a} yrs)` : "")));
+    const edit = el("a", "", "Edit details"); edit.href = `/?edit=${encodeURIComponent(p.id)}`;
+    const ef = el("div", "value"); ef.appendChild(edit);
+    facts.appendChild(fact("Actions", ef));
+    demo.appendChild(facts);
+  } catch (err) {
+    demo.innerHTML = "";
+    demo.appendChild(el("div", "status error", `Could not load patient: ${err.message}`));
+  }
+}
+
+// ---------- Vitals ----------
+function obsDate(o) { return o.effectiveDateTime || (o.effectivePeriod && o.effectivePeriod.start) || o.effectiveInstant || o.issued || null; }
+function codesOf(cc) { return (cc && cc.coding || []).map(c => c.code); }
+
+function parseVitals(observations) {
+  const series = Object.fromEntries(VITALS.map(v => [v.key, []]));
+  for (const o of observations) {
+    if (o.resourceType !== "Observation" || o.status === "entered-in-error") continue;
+    const date = obsDate(o);
+    if (!date) continue;
+    const codes = codesOf(o.code);
+    for (const v of VITALS) {
+      if (!v.codes.some(c => codes.includes(c))) continue;
+      if (v.bp) {
+        const comp = (code) => (o.component || []).find(c => codesOf(c.code).includes(code));
+        const sys = comp("8480-6"), dia = comp("8462-4");
+        const sv = sys && sys.valueQuantity && sys.valueQuantity.value, dv = dia && dia.valueQuantity && dia.valueQuantity.value;
+        if (sv == null && dv == null) continue;
+        series.bp.push({ t: new Date(date), date, sys: sv, dia: dv, unit: (sys || dia).valueQuantity.unit || "mmHg" });
+      } else if (o.valueQuantity && typeof o.valueQuantity.value === "number") {
+        series[v.key].push({ t: new Date(date), date, value: o.valueQuantity.value, unit: o.valueQuantity.unit || o.valueQuantity.code || "" });
+      }
+      break;
+    }
+  }
+  for (const k in series) series[k].sort((a, b) => a.t - b.t);
+  return series;
+}
+
+function unitLabel(u) { return { "Cel": "°C", "/min": "/min", "kg/m2": "kg/m²", "mm[Hg]": "mmHg" }[u] || u; }
+function valueText(v, r) {
+  if (v.bp) return `${r.sys != null ? round(r.sys) : "–"}/${r.dia != null ? round(r.dia) : "–"} ${unitLabel(r.unit)}`;
+  return `${round(r.value)} ${unitLabel(r.unit)}`.trim();
+}
+
+const charts = [];
+function renderCharts(series) {
+  const wrap = $("vitals-charts");
+  wrap.innerHTML = "";
+  const css = getComputedStyle(document.documentElement);
+  const grid = css.getPropertyValue("--border").trim(), muted = css.getPropertyValue("--text-muted").trim();
+  Chart.defaults.font.family = css.getPropertyValue("--font").trim();
+  Chart.defaults.color = muted;
+  for (const v of VITALS) {
+    const data = series[v.key];
+    const card = el("div", "chart-card");
+    card.appendChild(el("h3", "", v.label));
+    const latest = el("div", "latest");
+    if (data.length) {
+      const last = data[data.length - 1];
+      const b = el("b", "", valueText(v, last));
+      latest.append(b, ` · ${fmtDate(last.date)} · ${data.length} reading${data.length === 1 ? "" : "s"}`);
+    } else latest.textContent = "No readings";
+    card.appendChild(latest);
+    if (!data.length) {
+      card.appendChild(el("div", "chart-empty", "No data recorded for this vital sign"));
+      wrap.appendChild(card);
+      continue;
+    }
+    const box = el("div", "chart-box");
+    const canvas = el("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `${v.label} over time`);
+    box.appendChild(canvas);
+    card.appendChild(box);
+    wrap.appendChild(card);
+    const ds = (label, key, color) => ({
+      label, data: data.filter(r => r[key] != null).map(r => ({ x: r.t, y: r[key] })),
+      borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: data.length > 40 ? 0 : 3, pointHoverRadius: 5, tension: 0.25,
+    });
+    const datasets = v.bp ? [ds("Systolic", "sys", "#C2417E"), ds("Diastolic", "dia", "#2F6FED")] : [ds(v.label, "value", v.color)];
+    const unit = unitLabel(data[data.length - 1].unit);
+    charts.push(new Chart(canvas, {
+      type: "line",
+      data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "nearest", intersect: false },
+        scales: {
+          x: { type: "time", time: { tooltipFormat: "PP" }, grid: { color: grid }, ticks: { maxTicksLimit: 6 } },
+          y: { grid: { color: grid }, title: { display: !!unit, text: unit } },
+        },
+        plugins: {
+          legend: { display: !!v.bp, labels: { boxWidth: 10, boxHeight: 10 } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${round(ctx.parsed.y)} ${unit}` } },
+        },
+      },
+    }));
+  }
+}
+
+function renderVitalsTable(series) {
+  const rows = [];
+  for (const v of VITALS) for (const r of series[v.key]) rows.push({ v, r });
+  rows.sort((a, b) => b.r.t - a.r.t);
+  const tbody = $("vitals-rows");
+  tbody.innerHTML = "";
+  for (const { v, r } of rows) tbody.appendChild(row([{ text: fmtDate(r.date), cls: "date" }, { text: v.label }, { text: valueText(v, r), cls: "num" }]));
+  if (!rows.length) tbody.appendChild(row([{ text: "No vital signs recorded", cls: "muted" }, { text: "" }, { text: "" }]));
+}
+
+function setView(view) {
+  $("view-chart").setAttribute("aria-pressed", view === "chart");
+  $("view-table").setAttribute("aria-pressed", view === "table");
+  $("vitals-charts").hidden = view !== "chart";
+  $("vitals-table").hidden = view !== "table";
+}
+$("view-chart").addEventListener("click", () => setView("chart"));
+$("view-table").addEventListener("click", () => setView("table"));
+
+async function loadVitals() {
+  try {
+    const obs = await searchAll(`/api/Observation?subject=${encodeURIComponent("Patient/" + patientId)}&code=${OBS_CODES.join(",")}&_count=200`);
+    const series = parseVitals(obs);
+    const total = Object.values(series).reduce((n, s) => n + s.length, 0);
+    $("vitals-sub").textContent = total ? `${total} reading${total === 1 ? "" : "s"} across ${VITALS.filter(v => series[v.key].length).length} vital signs` : "No vital signs recorded";
+    renderCharts(series);
+    renderVitalsTable(series);
+  } catch (err) {
+    $("vitals-sub").textContent = "";
+    setStatus("vitals-status", `Could not load vital signs: ${err.message}`, true);
+  }
+}
+
+// ---------- Conditions ----------
+function onsetOf(c) {
+  return c.onsetDateTime || (c.onsetPeriod && c.onsetPeriod.start) || c.onsetString ||
+    (c.onsetAge && `Age ${c.onsetAge.value}`) || null;
+}
+async function loadConditions() {
+  try {
+    const items = (await searchAll(`/api/Condition?patient=${encodeURIComponent(patientId)}&_count=200`)).filter(r => r.resourceType === "Condition");
+    items.sort((a, b) => String(onsetOf(b) || "").localeCompare(String(onsetOf(a) || "")));
+    const tbody = $("cond-rows");
+    tbody.innerHTML = "";
+    for (const c of items) {
+      const status = (c.clinicalStatus && (c.clinicalStatus.coding || [])[0] || {}).code;
+      tbody.appendChild(row([{ text: conceptText(c.code) || "(unnamed condition)" }, { text: fmtDate(onsetOf(c)), cls: "date" },
+        status ? el("span", "pill " + status, cap(status)) : { text: "—", cls: "muted" }]));
+    }
+    const active = items.filter(c => ((c.clinicalStatus && (c.clinicalStatus.coding || [])[0]) || {}).code === "active").length;
+    $("cond-sub").textContent = items.length ? `${items.length} total · ${active} active` : "";
+    setStatus("cond-status", items.length ? "" : "No conditions recorded");
+  } catch (err) {
+    $("cond-sub").textContent = "";
+    setStatus("cond-status", `Could not load conditions: ${err.message}`, true);
+  }
+}
+
+// ---------- Medications ----------
+const STATUS_ORDER = ["active", "on-hold", "draft", "completed", "stopped", "cancelled", "entered-in-error", "unknown"];
+async function loadMedications() {
+  try {
+    const all = await searchAll(`/api/MedicationRequest?patient=${encodeURIComponent(patientId)}&_include=MedicationRequest:medication&_count=200`);
+    const meds = new Map(all.filter(r => r.resourceType === "Medication").map(m => [`Medication/${m.id}`, m]));
+    const items = all.filter(r => r.resourceType === "MedicationRequest");
+    const nameOf = (r) => {
+      if (r.medicationCodeableConcept) return conceptText(r.medicationCodeableConcept);
+      const ref = r.medicationReference || {};
+      const m = meds.get(ref.reference) || meds.get((ref.reference || "").split("/").slice(-2).join("/"));
+      return (m && conceptText(m.code)) || ref.display || ref.reference || "";
+    };
+    items.sort((a, b) => (STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)) || String(b.authoredOn || "").localeCompare(String(a.authoredOn || "")));
+    const tbody = $("med-rows");
+    tbody.innerHTML = "";
+    for (const r of items) {
+      tbody.appendChild(row([{ text: nameOf(r) || "(unnamed medication)" }, el("span", "pill " + (r.status || ""), cap(r.status)), { text: fmtDate(r.authoredOn), cls: "date" }]));
+    }
+    const active = items.filter(r => r.status === "active").length;
+    $("med-sub").textContent = items.length ? `${active} active · ${items.length} total` : "";
+    setStatus("med-status", items.length ? "" : "No medications recorded");
+  } catch (err) {
+    $("med-sub").textContent = "";
+    setStatus("med-status", `Could not load medications: ${err.message}`, true);
+  }
+}
+
+api("/api/config").then(c => { $("server").textContent = c.server; }).catch(() => {});
+if (!patientId) {
+  $("demo").innerHTML = "";
+  $("demo").appendChild(el("div", "status error", "No patient ID in the URL."));
+} else {
+  loadPatient(); loadVitals(); loadConditions(); loadMedications();
+}
+</script>
+</body>
+</html>
