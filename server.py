@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import urllib.error
+import time
 import urllib.parse
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -32,13 +33,17 @@ def fhir_request(method, url, body=None):
     if body is not None:
         headers["Content-Type"] = "application/fhir+json"
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    start = time.perf_counter()
+    elapsed = lambda: (time.perf_counter() - start) * 1000
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return resp.status, resp.read()
+            data = resp.read()
+            return resp.status, data, elapsed()
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        data = e.read()
+        return e.code, data, elapsed()
     except Exception as e:  # network errors, timeouts
-        return 502, json.dumps(outcome(f"Could not reach FHIR server: {e}")).encode()
+        return 502, json.dumps(outcome(f"Could not reach FHIR server: {e}")).encode(), elapsed()
 
 
 def outcome(message):
@@ -55,9 +60,11 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.command, fmt % args))
 
-    def send_json(self, status, payload):
+    def send_json(self, status, payload, upstream_ms=None):
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         self.send_response(status)
+        if upstream_ms is not None:
+            self.send_header("Server-Timing", f'fhir;dur={upstream_ms:.1f};desc="FHIR server"')
         self.send_header("Content-Type", "application/fhir+json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
